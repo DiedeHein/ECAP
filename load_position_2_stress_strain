@@ -1,0 +1,266 @@
+%% Converting load-displacement data into stress-strain data
+% % % 
+% % % By Diede Hein, last updated on [06-03-2019]
+% % % 
+% % %   % % % % % % % % % % % % % % % % % % WARNING: % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % 
+% % % 
+% % %            Please mind that the stresses esimated by this script derive from 
+% % %            the die geometry and strain rate alone, therefore it does not take 
+% % %            into account any strain-partioning or friction effects. The stress 
+% % %            estimates are therefore unreliable. 
+% % %            
+% % %            The TRIAL version for compaction correction to better fit the max
+% % %            differential stress peak to the position of max strain rate is based
+% % %            on the assumption that all compaction of the sample occurs in before 
+% % %            displacement of the sample.
+% % % 
+% % % % % %   % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % 
+% % % 
+% % % Instructions:
+% % % 
+% % % Load in ECAP Rig Data as a three column matrix containing columns as: [time,Load,Displacement], f.e. Data_neat.mat
+% % %
+% % % This program converts raw rig data of a single experiment into shear stress, strain, strainrate
+% % % etc. based on a fitted function of delta L with displacement of the
+% % % sample centre through an ECAP die. The program saves a number of data
+% % % into a .mat file: 
+% % %   - a converted "Data" file containing a three-column vector [time, differential stress as derived from resolving the Load onto the shear plane of the sample inside the jacket (ignoring jacket strength), Strain] 
+% % %   - a "strainrate" file containing a three-column vector [time, strain, strainrate]
+% % %   - a 1x1 double-value "Displacementrate" containing the displacement rate in nm/s of the experiment.
+% % %   - a 1x1 double-value "MaxStrainrate" containing the maximum strainrate experienced by the sample centre in the experiment
+% % %   - a 1x1 double-value "MaxDiffStress" containing the maximum differential stress experienced by the sample centre in the experiment.
+% % %   
+% % % The program plots four figures:
+% % %   - The pathway of the sample centre over the model dL over displacment within the die
+% % %   - The strain of the sample centre over displacment through the die, w. indicated position of max strain rate
+% % %   - The Strain rate evolution over time, w. indicated position of maximum strain rate.
+% % %   - The calculated differential stress over position, w. indicated pos. of max strain rate
+% % % 
+% % %  Enjoy!
+% % % 
+% % % 
+
+%% !!!!!!!!!!!!!!!!  INPUT DECK  !!!!!!!!!!!!!!
+
+filename           = 'E3conv'         ;% specify name of converted data output matrix
+Data               = E3               ;% Rig data file for conversion
+var.Samplelength   = 3                ;% length of the sample capsule (WITHOUT cap) in mm, based on specific sample geometry (as illustrated in figure A.1a), where the sample centre is 1,25 mm removed from the upper (open) side of the capsule
+
+var.ploton2ndscreen = 'y'              ;% set to 'y' to plot on second screen (to the right) or 'n' if not
+
+%% TRIAL Compaction Correction:
+Toggle_compcorr    = 1               ;% set to 1 to activate Compaction correction, set to 0 to omit correction. For second-pass experiments set this value to 0.
+var.LCalcite_init  = 2.3125          ;% Length of Calcite in sample corrected for drilltip reduced area geometry as follows: 2,5 - 0.1875 = 2.3125 mm
+var.LCalcite_end   = 1.75            ;% Specify the length (in mm) of the calcite sample as measured from SE imaging AFTER the experiment. 
+
+%% Strain calculation from displacement data
+
+% correction for units and sampleposition, and calculating average Displacement rate
+
+Data(:,3) = Data(:,3)*10^-3;             %converting displacement data from microns to mm 
+x = Data(:,3)+ 8.06 - (var.Samplelength-1.25);     %x = position of sample centre relative to die channel
+Displacementrate = (max(Data(:,3))-min(Data(: ,3)))/(max(Data(:,1))-min(Data(:,1))); %calculating average displacement rate
+
+% -------- TRIAL compaction correction ----------------------%
+if Toggle_compcorr == 1
+    var.Compaction = var.LCalcite_init - var.LCalcite_end   ;% calculating compaction
+    x = x - var.Compaction                                  ;% subtracting compaction from the displacment data
+end
+% -----------------------------------------------------------%
+
+% Strain calculation
+
+var.xmid = 8.85;                                 %x distance to center of the bend
+var.L0   = 1.81;                                 %Initial Channelwidth
+var.Lmax = 2.75;                                 %final channelwidth
+var.dL   = var.Lmax-var.L0;                      %
+ 
+imax = size(Data);                               %finding the amount 
+imax = (imax(1,1));                              %of rows in the dataset
+
+L = zeros(imax,1);                               % Preallocating array for L
+
+for i=1:imax
+    L(i) = -(var.dL)/(1+exp((3*var.dL)*(x(i)-var.xmid)))+var.Lmax;  %Function of Channelwidth L for sample centre position x along channel
+    strain = var.L0/L(i);
+    Data(i,3) = tan(acos(strain));  %Calculating simple shear strain and replacing position w. strain in matrix
+end
+
+%% Strain rate calculation
+
+Strainrate = zeros(imax,3);         %Preallocating array for [time,strain,strainrate]
+
+for i=1:imax
+    Strainrate(i,1) = Data(i,1);                                           %Copying time sig. to strainrate matrix
+   
+    if i == 1
+        Strainrate(i,2) = 0;                                               %setting initial strainrate to 0
+    else
+        Strainrate(i,2) = (Data(i,3)-Data(i-1,3))/(Data(i,1)-Data(i-1,1)); %Calculating dy/dx i.e. de/dt
+    end
+    
+end
+
+% Averaging strain rate curve
+
+var.Range= 1200;      %input integer > 0, the amount over double of which measurements the strain rate output is averaged. input 300 = averaging over 1 minute of measurements
+ 
+for i=1:imax
+    
+    if i<var.Range+1 || i>imax-var.Range
+        Strainrate(i,3) = 0;
+        
+    else 
+        Strainrate(i,3) = sum(Strainrate(i-var.Range:i+var.Range-1,2))/(var.Range*2);      %Calculating dy/dx + smoothing out the curve by averaging every point with a range of neighbourpoints
+    end
+end
+
+% Finding the Maximum strain rate
+
+MaxStrainrate = max(Strainrate(:,3));                       %Finding the max strain rate
+var.imaxstrainrate = find(Strainrate(:,3)== MaxStrainrate); %finding the row number of the max strainrate
+
+% Model of Channelwidt 'L' curve over the entire channel 
+
+xmodel = zeros(16,1);
+Lmodel = zeros(16,1);
+
+for i=1:32
+    xmodel(i) = i/2;                                                               %16 (1 every mm) points through channel
+    Lmodel(i) = -(var.dL)/(1+exp((3*var.dL)*(xmodel(i)-var.xmid)))+var.Lmax;       %Function of Channelwidth L for sample centre position x along channel
+end
+
+%% Shear Stress Calculation
+
+% % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % 
+% % % !!!! This section seems to dramatically overestimate stresses, requires some fixing up !!! % % % % % 
+% % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % % 
+
+% corrections & area calculations
+
+var.Backgroundload  = 98                    ;% Load before contact in N
+Data(:,2) = Data(:,2)-var.Backgroundload    ;%Correcting Load data for background loading of the Load cell by the rig
+
+var.Samplediameter  = 0.00125       ;% diameter of sample in m
+var.Jacketthickness = 0.0002        ;% thickness of Cu Jacket
+var.Channeldiameter = 0.00165       ;% channel diameter
+var.Benddiameter    = 0.0019        ;% diameter of the channelbend 
+var.Angle           = 32.5          ;% Angle of shear plane w. horizontal (from die schematic)
+
+var.Widthratio        = var.Benddiameter/var.Channeldiameter ;%calculating surfaces of sample and jacket on shear plane
+var.spSamplediameter  = var.Samplediameter*var.Widthratio    ;%sample diameter on shear plane
+var.spJacketthickness = var.Jacketthickness*var.Widthratio   ;%jacket thickness on shear plane
+
+var.spSampleArea = pi()*(var.spSamplediameter/2)^2;                                               %calculating calcite sample area
+var.spJacketArea = pi()*((2*var.spJacketthickness+var.spSamplediameter)/2)^2 - var.spSampleArea;  %calculating copper jacket area
+var.spTotalArea  = var.spSampleArea + var.spJacketArea;
+
+% Dividing shearing force (Load*sin(theta)) over sample shear plane area
+
+Stress.totalshear   = Data(:,2)*sin(var.Angle)/(var.spSampleArea); %total Shear stress applied to both sample & jacketing
+Stress.differential = Stress.totalshear * 2;
+
+% Finding shear stress at moment of max strain rate
+
+MaxDiffStress = Stress.differential(var.imaxstrainrate);
+
+%% Plot Results 
+
+close all
+
+if var.ploton2ndscreen == 'y'
+    xplot = 1920;
+else 
+    xplot = 0;
+end
+   
+% ------------------------ L evolution w.r.t. model -----------------------------------------------------------------------------
+ttl = ( ['Load_position to stress_strain ' num2str( filename )] );
+
+figure('name',ttl,'position',[0+xplot,50,1300,725])
+
+ax1 = subplot(2,3,1);
+title(ax1, 'L over displacement w.r.t. model')
+
+hold on
+plot(x,L,'LineWidth',2.5,'Color','[0 0.8 0.8]');
+scatter(xmodel,Lmodel,30,'.','MarkerFaceColor','k','MarkerEdgeColor','k');
+hold off
+
+xlabel('Distance along channel x (mm)')
+ylabel('L(x)')
+legend('Sample path','model L','location','northwest')
+set(legend,'interpreter','latex')
+
+% Input Figure Name top left:
+
+txt = text(-9, 2.6, sprintf(filename));
+txt.FontSize = 20;
+
+if Toggle_compcorr == 1
+    compcorr_warning1 = text(-9,2.48, sprintf('Compaction Correction: '));
+    compcorr_warning1.FontSize = 11;
+    compcorr_warning2 = text(-9,2.4, sprintf([num2str(var.Compaction), ' mm' ]));
+    compcorr_warning2.FontSize = 11;
+else
+    compcorr_warning = text(-9,2.48, 'No Compaction Correction');
+    compcorr_warning.FontSize = 11;
+end
+
+
+% ------------------------ Strain evolution over displacement --------------------------------------------------------------
+
+ax2 = subplot(2,3,2);
+title(ax2, 'Strain over displacement')
+
+hold on
+plot(x,Data(:,3),'LineWidth',2.5,'Color','[0 0.8 0.8]')
+scatter(x(var.imaxstrainrate),Data(var.imaxstrainrate,3),150,'Marker','square','MarkerFaceColor','r')
+ylabel('strain')
+xlabel('Sample position in channel (mm)')
+legend('location','northwest',{'Strain','position of $\dot\epsilon_{max}$'}); 
+set(legend,'interpreter','latex')
+xlim manual
+xlim([0 16])
+hold off
+
+% ------------------------ Strain rate evolution with position --------------------------------------------------------------
+
+ax3 = subplot(2,3,3);
+title(ax3, 'Strain rate evolution with position')
+
+% plot((x),Strainrate(:,2)); 
+hold on; 
+plot((x),Strainrate(:,3),'LineWidth',2.5,'Color','[0 0.8 0.8]');
+scatter(x(var.imaxstrainrate),MaxStrainrate,150,'Marker','square','MarkerFaceColor','r');
+text(9.5, 2E-4, sprintf('Disp. rate = \n%.2e m s-1', Displacementrate))
+
+ylim manual
+ylim([0 4*10^-4]);
+ylabel('Strainrate s-1')
+xlabel('Sample position in channel (mm)')
+legend('location','northwest','Averaged Strain rate','$\dot\epsilon_{max}$'); 
+set(legend,'interpreter','latex')
+
+% ------------------------ Stress vs. Position -----------------------------------------------------------------------------------
+
+ax4 = subplot(2,3,[4 5 6]);
+title(ax4, 'Differential stress vs. position')
+
+hold on
+plot(x,Stress.differential,'LineWidth',2.5,'Color','[0 0.8 0.8]')
+scatter(x(var.imaxstrainrate),MaxDiffStress,150,'Marker','square','MarkerFaceColor','r')
+text(10, 2E8, sprintf('Disp. rate = \n%.2e m s-1', Displacementrate))
+
+ylabel('Stress (Pa)')
+xlabel('Sample position in channel (mm)')
+legend('location','northwest','Differential stress','Differential stress at $\dot\epsilon_{max}$')
+set(legend,'interpreter','latex')
+hold off
+
+%% file making
+
+save(filename,'Data','Displacementrate','Strainrate','MaxStrainrate','MaxDiffStress')
+% savefig(ttl)
+ttl = ( ['Load_position to stress_strain ' num2str( filename ) '.png']);
+saveas(gcf,ttl)
