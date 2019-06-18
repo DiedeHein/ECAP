@@ -1,0 +1,448 @@
+%% FLOW LAWS PLOTTING 
+% % % 
+% % % By Diede Hein, last updated on [18-06-2019]
+% % % 
+% % % Instructions:
+% % % 
+% % % Load in ECAP Max Strain rate data & Differential stress data of 
+% % % experiments per Temperature group as a four column vector containing 
+% % % columns as: 
+% % % 
+% % % [name experiment, Diff. strain rate, Differential stress,Standard deviation]
+% % % 
+% % % Different differential stress types could  f.e. be diff. stress from 
+% % % piezometry, or diff. stress from Load over area, etc.
+% % % 
+% % % All flow law variables used originate from the respective studies 
+% % % unless indicated otherwise. 
+% % % 
+% % % The program calculates and plots flow laws over specified stress
+% % % ranges at two different temperatures and compares it with the Loaded 
+% % % in strainrate/diff.stress data.
+% % %  
+% % % The program saves stress/strainrate data of each flow law in
+% % % three-column vectors as [strainrate, stress at T1, stress at T2], 
+% % % named after the authors f.e. "Renneretal2002".
+% % % 
+% % % The script can be run in its entirety or in sections. The input deck 
+% % % and plotting sections may be customised as seen fit.
+% % % 
+% % % Enjoy!
+% % % 
+% % % 
+
+%% INPUT DECK
+
+filename                 = 'Flowlawsdata'   ;% specify name of flow law output data file
+data                     = rate_stress_data ;% specify loaded file name
+var.T1                   = 750 + 273.15     ;% Absolute temperature 1 in °K
+var.T2                   = 800 + 273.15     ;% Absolute temperature 2 in °K
+var.Stressrange_minimum  = 0                ;% Specify lower end of differential stress (Pa) used to calculate the flow laws
+var.Stressrange_maximum  = 500*10^6         ;% Specify upper end of differential stress (Pa) used to calculate the flow laws
+var.Stressrange_interval = 1000             ;% Specify the interval (in Pa) between stress values used to calculate the flow laws, higher values == smoother curves == longer computation times 
+var.d                    = 4.7E-6           ;% Specify grain size in m
+
+var.ploton2ndscreen = 'n'                   ;% set to 'y' to plot on second screen (to the right) or 'n' if not
+
+%% Pre-allocating arrays and filling stress columns
+
+% calculating array size
+var.nx = (var.Stressrange_maximum - var.Stressrange_minimum) / var.Stressrange_interval + 1;
+var.ny = 3;
+
+% pre-allocating arrays
+FrostAshby1979             = zeros(var.nx,var.ny);
+RajLangdon1989             = zeros(var.nx,var.ny);
+Renneretal2002             = zeros(var.nx,var.ny);
+Walkeretal1990             = zeros(var.nx,var.ny);
+deBresserSpiers1990barrier = zeros(var.nx,var.ny);
+deBresser2002              = zeros(var.nx,var.ny);
+Herweghetal2003            = zeros(var.nx,var.ny);
+
+% filling stress columns (: ,1) in arrays
+sz   = size(FrostAshby1979) ;
+imax = sz(1,1)              ;
+
+for i = 1:imax
+    FrostAshby1979(i,1)             = var.Stressrange_minimum + (i-1)*var.Stressrange_interval;
+    RajLangdon1989(i,1)             = var.Stressrange_minimum + (i-1)*var.Stressrange_interval;
+    Renneretal2002(i,1)             = var.Stressrange_minimum + (i-1)*var.Stressrange_interval;
+    Walkeretal1990(i,1)             = var.Stressrange_minimum + (i-1)*var.Stressrange_interval;
+    deBresserSpiers1990barrier(i,1) = var.Stressrange_minimum + (i-1)*var.Stressrange_interval;
+    deBresser2002(i,1)              = var.Stressrange_minimum + (i-1)*var.Stressrange_interval;
+    Herweghetal2003(i,1)            = var.Stressrange_minimum + (i-1)*var.Stressrange_interval;
+end
+%% selecting output screen
+
+close all
+
+if var.ploton2ndscreen == 'y'
+    xplot = 1920;
+else 
+    xplot = 0;
+end
+
+%% Flow law Copper  (Frost & Ashby, 1973) !!! DOUBLE-CHECK PARAMETER CONVERSION
+
+% % % 
+% % % FLOW LAW: (grainsize-insensitive creep law)
+% % % 
+% % %                  A2 * Deff * mu * b                 
+% % %    strainrate = -------------------- * (Stress / mu)^n
+% % %                        k * T
+% % %                     
+% % % with:
+% % %              
+% % %                             10ac                     Dc
+% % %          Deff = Dv * [ 1 + ------ * (stress/mu)^2 * ---- ]
+% % %                              b^2                     Dv
+% % %  
+
+for i=2:3
+    
+    % setting temperature for columns 2 & 3
+    if i == 2
+        var.T = var.T1;
+    else
+        var.T = var.T2;
+    end
+         
+    % Variables Flow law  
+
+    var1.A     = 7.4E5          ;%Pre-exponential parameter       - no unit
+    var1.n     = 4.8            ;%Power exponent                  - no unit
+    var1.Dov   = 0.2E-4         ;%Diffusion coefficient           - m2/s
+    var1.acDoc = 10^-24         ;%experimentally determined       - m4/s
+    var1.Qv    = 47.12*4184     ;%activation energy               - J/mol
+    var1.Qc    = 28.0*4184      ;% " "                            - J/mol
+    var1.R     = 8.314          ;%Gas constant                    - J/mol.K
+    var1.b     = 2.56E-10       ;%Burgress vect.                  - m
+    var1.u0    = 4.21E10        ;%Init. Shear modulus             - Pa
+    var1.dudT  = 1.67E7         ;%linear temperature dependency u - Pa/°K
+    var1.k     = 1.38064852E-23 ;%Boltzman constant               - m2 kg s-2 K-1
+
+    % Calculating Flow law Parameters  
+
+    var1.A2  = (sqrt(3))^(var1.n+1)*var1.A                 ;
+    var1.Dv  = var1.Dov*exp(-var1.Qv/(var1.R*var.T))       ;
+    var1.ac  = 5*var1.b^2                                  ;
+    var1.Doc = var1.acDoc / var1.ac                        ;
+    var1.Dc  = var1.Doc*exp(-var1.Qc/(var1.R*var.T))       ;
+    var1.u   = var1.u0*(1-(var.T-300)*1/var1.u0*var1.dudT) ;
+
+    % Solving strainrate for stressrange
+    
+    for j = 1 : imax
+        var1.Deff = var1.Dv *(1 + (10 * var1.ac / var1.b^2)*(FrostAshby1979(j,1) / var1.u)^2 * (var1.Dc / var1.Dv));
+        FrostAshby1979(j,i) = (var1.A2 * var1.Deff * var1.u * var1.b) / (var1.k * var.T) * (FrostAshby1979(j,1) / var1.u)^var1.n;
+    end
+
+end
+%% Flow law Copper  (Raj & Langdon, 1989) !!! DOUBLE-CHECK PARAMETER CONVERSION
+
+% % % 
+% % %  FLOW LAW: 
+% % %  
+% % %  strainrate = A(DGb/kT)(b/d)^p(stress/G)^n
+% % % 
+
+% setting temperature for columns 2 & 3
+
+for i=2:3
+
+    if i == 2
+        var.T = var.T1;
+    else
+        var.T = var.T2;
+    end
+         
+    % Variables Raj & Langdon, 1989
+
+    var2.R = 8.314                           ;%Gas constant                    - J/mol.K
+    var2.k = 1.38064852E-23                  ;%Boltzman constant               - m2 kg s-2 K-1
+
+    var2.A = 4E4                             ;%Pre-exponential parameter       - no unit
+    var2.D = 4.2E-6*exp(-150/(var2.R*var.T)) ;%Diffusion constant              - m2.s-1
+    var2.G = (4.75E4-17*var.T) * 1E6         ;%Shear Modulus                   - Pa
+    var2.b = 2.56E-10                        ;%burgers Vector length           - m
+    var2.p = 0                               ;%grain size exponent             - no unit
+    var2.n = 4.2                             ;%stress exponent                 - no unit
+
+    % Calculating Strain rate from flow law over stress interval
+    
+    for j = 1 : imax
+    RajLangdon1989(j,i) = var2.A * (var2.D * var2.G * var2.b) / (var2.k * var.T) * (var2.b / var.d)^var2.p * (RajLangdon1989(j,1)/var2.G)^var2.n;
+    end
+end
+%% Flow law Calcite (Renner et al., 2002) Synthetic Calcite
+
+% % % 
+% % %   FLOW LAW: 
+% % %   
+% % %   strainratep = Ap * stress^2 * exp(stress/stressp) * exp(-Qp/R*T) 
+% % % 
+% % %   with: 
+% % % 
+% % %       stressp = (sumP,0 + K * d^-m) * (Tm - T)
+% % % 
+
+% setting temperature for columns 2 & 3
+
+for i=2:3
+
+    if i == 2
+        var.T = var.T1;
+    else
+        var.T = var.T2;
+    end
+
+    % Variables  Renner et al., 2002
+
+    var3.R       = 8.314                        ;%Gas constant                -  J/mol.K
+    var3.Ap      = 10^0.5 * 10^-12              ;%Pre-exponential factor      -  Pa-2*s-1
+    var3.sumPO   = 6.4 * 10^3                   ;%Lattice friction parameter  -  Pa*K-1
+    var3.K       = 115                          ;%Backstress parameter        -  Pa*K-1*m^0.5
+    var3.m       = 0.5                          ;%Grainsize exponent          -  [no unit]
+    var3.Tm      = 1612.5                       ;%Melting temperature Calcite -  °K
+    var3.Qp      = 200 * 10^3                   ;%Apparent Activation energy  -  J/mol
+
+    var3.stressp = (var3.sumPO + var3.K * var.d^-var3.m) * (var3.Tm - var.T);  %Finding Peierls Stress 
+
+    % Calculating flow law over range of stress
+    
+    for j = 1:imax  
+    Renneretal2002(j,i) = var3.Ap * Renneretal2002(j,1)^2 * exp(Renneretal2002(j,1) / var3.stressp) * exp(-var3.Qp / (var3.R * var.T) ); %calculating strainrate over stress interval  
+    end
+Renneretal2002(:,i) = real(Renneretal2002(:,i));
+end
+%% Flow law Calcite (Walker et al., 1990) Synthetic Calcite
+
+% % % 
+% % %   FLOW LAW: 
+% % %   
+% % %   Log(strainrate) = log(A) - (190 kJ / (2.303 * R * T)) + n * log(stress) - m * log(d)
+% % %   
+% % %   strainrate in s-1, stress in MPa, grainsize in micrometers, Temperature in °C, R = gas constant
+% % %   
+% % %   After Eq. 1, with 25 MPa < stress > 200MPa
+
+% calculating strainrates over stress range
+
+for i=2:3
+
+    if i == 2
+        var.T = var.T1;
+    else
+        var.T = var.T2;
+    end
+
+    for j = 2:imax 
+        if  Walkeretal1990(j,1) <= 25*1E6
+            rti = j; %finding regime transition index
+            Walkeretal1990(j,i) = exp(4.93 - 190000/(2.303 * var1.R * (var.T-273.15)) + 1.67 * log(Walkeretal1990(j,1)/1E6) - 1.87 * log(var.d*1E6));
+        else 
+            Walkeretal1990(j,i) = exp(2.00 - 190000/(2.303 * var1.R * (var.T-273.15)) + 3.33 * log(Walkeretal1990(j,1)/1E6) - 1.34 * log(var.d*1E6));
+        end
+    end
+
+end
+%% Flow law Calcite (de Bresser & Spiers, 1990) barrier controlled dislocation glide single crystal
+
+% % % 
+% % %   FLOW LAW: 
+% % %   
+% % %   strainrate = C exp[(-Q/RT)* (1-stress/stress_0)]
+% % %   
+% % %   with log(C) = 13.05 (+/- 2.72), Q = 432 (+/- 32) kJ/mol, and
+% % %   stress_0 = 202 (+/- 15) MPa
+% % %   
+% % %   
+
+% calculating strainrates over stress range
+
+for i=2:3
+
+    if i == 2
+        var.T = var.T1;
+    else
+        var.T = var.T2;
+    end
+
+    for j = 1:imax  
+    deBresserSpiers1990barrier(j,i) = 10^13.05 * exp((-432000/(var1.R * var.T)) * (1-(deBresserSpiers1990barrier(j,1)/(202 * 10^6))))     ;
+    end
+
+end 
+%% Flow law Calcite (de Bresser, 2002) cross-slip Carrera Marble
+
+% % %   dissociation controlled cross-slip of Carrera Marble FLOW LAW: 
+% % %   
+% % %                               Stress               fdUcs(stress,Pressure)
+% % %         strainrate =  K' * ( -------- ) * exp( -  ----------------------- )(eq. 2)
+% % %                                 mu                        k * T
+% % %   
+% % %   with   dUcs(s,P) = dUcs(1 - a*b*stress / y )    (= fdUcs, in this script)
+% % % 
+% % %                            mu * b^3                    2*sqrt(3)
+% % %   and with    dUcs = ( ----------------- ) * ( ln --------------------)^0.5
+% % %                         1856( y/(mu*b) )           16*pi*( y/(mu*b) )
+% % % 
+% % %   and with      mu = 34830 - (10.34 * Tabs) for calcite in MPa, after De Bresser, PhD thesis eq. 5.7
+% % % 
+% % %   with log(K)=6.32 (+/- 0.04),k = boltzman constant, y = 0.230 J/m2, a = 2.20, and e0 = -0.16 (+/- 0.01)(Table 4, 4.8)
+% % %   
+
+% calculating strainrates over stress range
+
+for i=2:3
+
+    if i == 2
+        var.T = var.T1;
+    else
+        var.T = var.T2;
+    end
+    
+    var6.mu = (34830 - (10.34 * var.T))*1E6; %calculating mu in MPa, and converting to Pa
+    var6.b  = 6.37 * 10^-10; %burgers vector in m, after de Bresser, PhD thesis fig. 5.8
+    var6.k  = 1.38064852E-23; % boltzman constant, unit: m2 kg s-2 K-1
+    var6.dUcs = ((var6.mu*var6.b^3)/(1859*(0.23/(var6.mu*var6.b))))*(log((2*sqrt(3))/(16*pi*0.23/(var6.mu*var6.b))))^0.5 ; 
+    
+    for j = 1:imax  
+    var6.fdUcs = var6.dUcs * (1-2.2*var6.b*deBresser2002(j,1)/0.23);
+    deBresser2002(j,i) = 10^(6.32) * (deBresser2002(j,1)/var6.mu)^2 * exp(- var6.fdUcs / (var6.k*var.T));
+    end
+
+end 
+%% Flow law Calcite Herweghetal2003 GBS + Coble Creep
+
+for i=2:3
+
+    if i == 2
+        var.T = var.T1;
+    else
+        var.T = var.T2;
+    end
+    
+    
+    
+    for j = 1:imax 
+        if Herweghetal2003(j,1) < 40E6
+        Herweghetal2003(j,i) = 4.3E7 * (((Herweghetal2003(j,1).*10^-6)^1.1)/((var.d*10^6)^3.26))* exp(-200000 / (var1.R*var.T));
+        else
+            
+        end
+    end
+end 
+
+%% Plotting Frost & Ashby (1979) Single Graph
+
+figure('name','Flow law Copper Frost & Ashby, 1979','position',[0+xplot,480,425,300])
+
+hold on                                             ; 
+patch([1.17E-4 3.115E-4 3.115E-4 1.17E-4], [1.05E4 1.05E4 1E10 1E10],[0.8 0.9 0.9],'EdgeColor','none');
+plot(FrostAshby1979(:,2),FrostAshby1979(:,1))       ; 
+plot(FrostAshby1979(:,3),FrostAshby1979(:,1))       ; 
+hold off ;
+
+title('Frost & Ashby, 1979')                        ;
+legend('location','northwest','Experimental strain rate area','750°C','800°C')      ; 
+xlabel('Strain rate (s^{-1})')                      ;
+ylabel('Flow Stress (Pa)')                          ;
+
+xlim manual                                         ;
+xlim([1E-5 1E-3])   
+ylim manual                                         ;
+ylim([1E4 1E10]);
+
+set(gca, 'XScale', 'log', 'YScale', 'log')
+%% Plotting Raj & Langdon (1989) Single Graph
+
+figure('name','Flow law Copper Raj & Langdon, 1989','position',[425+xplot,480,425,300])
+
+hold on                                             ; 
+
+patch([1.17E-4 3.115E-4 3.115E-4 1.17E-4], [1.05E4 1.05E4 1E10 1E10],[0.8 0.9 0.9],'EdgeColor','none');
+plot(RajLangdon1989(:,2),RajLangdon1989(:,1))       ; 
+plot(RajLangdon1989(:,3),RajLangdon1989(:,1))       ; 
+
+hold off                                            ;
+
+title('Raj & Langdon, 1989')                        ;
+legend('location','northwest','Experimental strain rate area','750°C','800°C')      ; 
+xlabel('Strain rate (s^{-1})')                      ;
+ylabel('Flow Stress (Pa)')                          ;
+
+xlim manual                                         ;
+xlim([1E-5 1E-3])   
+ylim manual                                         ;
+ylim([1E4 1E10]);
+
+set(gca, 'XScale', 'log', 'YScale', 'log')
+%% Plotting Calcite flow laws with piezometry
+close all
+clc
+figure('Name','Flow laws Calcite','position',[0+xplot,50,850,700]);
+
+% Plotting Flow Laws
+color1 = [0.0 0.9 0.9];
+color2 = [1 0.2 0.0];
+
+hold on; 
+h1 =plot(log10(Renneretal2002(:,2)),            (Renneretal2002(:,1).*1E-6),            'Marker','s','MarkerSize',7,'Color',color1,'MarkerEdgeColor',color1,'LineWidth',1); 
+h2 =plot(log10(deBresserSpiers1990barrier(:,2)),(deBresserSpiers1990barrier(:,1).*1E-6),'Marker','x','MarkerSize',7,'Color',color1,'MarkerEdgeColor',color1,'LineWidth',1);
+h3 =plot(log10(deBresser2002(:,2)),             (deBresser2002(:,1).*1E-6),             'Marker','d','MarkerSize',7,'Color',color1,'MarkerEdgeColor',color1,'LineWidth',1);
+h4a=plot(log10(Walkeretal1990(1:rti-1,2)),      (Walkeretal1990(1:rti-1,1).*1E-6),      'Marker','^','MarkerSize',7,'Color',color1,'MarkerEdgeColor',color1,'LineWidth',1);
+h4b=plot(log10(Walkeretal1990(rti+1:end,2)),    (Walkeretal1990(rti+1:end,1).*1E-6),    'Marker','v','MarkerSize',7,'Color',color1,'MarkerEdgeColor',color1,'LineWidth',1);
+h5 =plot(log10(Herweghetal2003(:,2)),           (Herweghetal2003(:,1).*1E-6),           'Marker','+','MarkerSize',7,'Color',color1,'MarkerEdgeColor',color1,'LineWidth',1);
+h6 =plot(log10(RajLangdon1989(:,2)),            (RajLangdon1989(:,1).*1E-6),            'Marker','*','MarkerSize',7,'Color',color2,'MarkerEdgeColor',color2,'LineWidth',1);
+
+h1.MarkerIndices  = [250,1000,4000,16000,64000,170000,320000];
+h2.MarkerIndices  = [250,1000,4000,15000,37000,62000,89000];
+h3.MarkerIndices  = [250,1000,4000,15000,42000,85000,130000];
+h4a.MarkerIndices = [125,750,5000,25000];
+h4b.MarkerIndices = [1,35500,110000];
+h5.MarkerIndices  = [125,250,500,1000,2000,4000,8000,16000,40000];
+h6.MarkerIndices  = [125,250,500,1050,2200];
+
+% Scattering in strainrate-stress data from experiments
+idP1    = ([2 5 7]); %index first pass samples
+idP2    = ([3]);     %index second pass samples
+idP2hiT = ([8]);     %index second pass samples at 800°C
+
+scatter(log10(data(idP1,2)),   (data(idP1,3))   ,75         ,'Marker','o','MarkerEdgeColor',[0.0 0.0 0.0],'LineWidth',1)
+scatter(log10(data(idP2,2)),   (data(idP2,3))   ,75,'filled','Marker','o','MarkerEdgeColor',[0.0 0.0 0.0],'LineWidth',1,'MarkerFaceColor',[0.0 0.0 0.0]);
+scatter(log10(data(idP2hiT,2)),(data(idP2hiT,3)),75,'filled','Marker','*','MarkerEdgeColor',[0.0 0.0 0.0],'LineWidth',1,'MarkerFaceColor',[0.0 0.0 0.0]);
+scatter(log10(mean(data([2 3 5 7 8],2))),(mean(data([2 3 5 7 8],3))),250,'Marker','.','MarkerEdgeColor',[1.0 0.0 1.0]);
+
+% Overlaying error
+err = rate_stress_data(idP1,4);
+errorbar(log10(data(idP1,2)),   (data(idP1,3)), (err), 'Color', 'k', 'LineStyle','none');
+err = rate_stress_data(idP2,4);
+errorbar(log10(data(idP2,2)),   (data(idP2,3)), (err), 'Color', 'k', 'LineStyle','none');
+err = rate_stress_data(idP2hiT,4);
+errorbar(log10(data(idP2hiT,2)),(data(idP2hiT,3)), (err), 'Color', 'k', 'LineStyle','none');
+
+hold off;
+
+legend('location','northeast','Renner et al., 2002, Peierls law disloc. creep synthetic marble','de Bresser & Spiers, 1990, dislocation glide single crystal calcite','de Bresser, 2002, dislocation cross slip single crystal calcite','Walker et al., 1990, <25 MPa, GSS creep synthetic marble','Walker et al., 1990, >25 MPa, GSS creep synthetic marble','Herwegh et al., 2003, GSS creep synthetic dolomitic marble','Raj & Langdon, 1989, Copper','ECAP pass 1 750°C ','ECAP pass 2 750°C', 'ECAP pass 2 800°C') ;
+set(legend,'FontWeight','normal');
+
+ylabel('Log_{10} Flow Stress (MPa)','FontWeight','bold');
+xlabel('Log_{10} Strain rate (s^{-1})','FontWeight','bold');
+box on;
+
+ax = gca;
+ax.XAxis.FontWeight = 'bold';
+ax.XAxis.LineWidth = 1;
+ax.YAxis.FontWeight = 'bold';
+ax.YAxis.LineWidth = 1;
+set(gca,'XDir','reverse');
+
+xlim manual;
+xlim([-6 -2]);
+ylim manual;
+ylim([0 250]);
+
+%% File making
+
+save(filename,'FrostAshby1979','RajLangdon1989','Renneretal2002','Walkeretal1990','deBresserSpiers1990barrier','deBresser2002')
